@@ -1,0 +1,9 @@
+gspread==6.1.2
+pandas==2.2.2
+psycopg2-binary==2.9.9
+sqlalchemy==2.0.30
+fastapi==0.111.0
+uvicorn==0.29.0
+apscheduler==3.10.4
+python-dotenv==1.0.1
+rich==13.7.1

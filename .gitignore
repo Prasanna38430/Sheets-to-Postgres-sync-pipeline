@@ -1,0 +1,16 @@
+# local secrets — never commit these
+.env
+credentials.json
+
+# python build artifacts
+__pycache__/
+*.pyc
+*.pyo
+
+# virtual envs
+venv/
+.venv/
+env/
+
+# macOS noise
+.DS_Store
