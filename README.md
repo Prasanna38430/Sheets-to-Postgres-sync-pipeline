@@ -1,32 +1,29 @@
 # Google Sheets → PostgreSQL Sync Pipeline
 
-A Python service that syncs data from any Google Sheet to a PostgreSQL database automatically every day. Includes a FastAPI layer so you can verify syncs, trigger manual runs, and query the data via API.
+A Python service that syncs data from any Google Sheet into a PostgreSQL database on a daily schedule, with a FastAPI layer for verifying syncs, triggering manual runs, and querying the data over HTTP.
 
-I built this for a client who had their sales records in Google Sheets but needed them in a proper database for SQL reporting. The sync runs at 2 AM daily and takes about 3 seconds for a 10,000-row sheet.
+I built this as a portfolio project to show a production-shaped ETL pattern end to end: pull from a messy source, clean it, load it idempotently, and put a small API in front so the result is verifiable. A lot of teams keep operational data in spreadsheets but eventually need it in a real database for SQL reporting, and this is the shape that problem usually takes.
 
 ## What it does
 
-The pipeline pulls every row out of a configured Google Sheet, runs it through a pandas cleaning step (trimming whitespace, deduplicating on the id column, coercing junk numbers to 0.0, parsing dates, and filtering out rows with statuses we don't recognise), and upserts the result into a PostgreSQL table. The upsert uses Postgres' native `INSERT ... ON CONFLICT` so existing rows get updated in place — we don't delete-and-reinsert, because that would lose the per-row `synced_at` timestamp and make it impossible to tell what actually changed in a given run. APScheduler kicks the whole thing off at 02:00 UTC every day, and a small FastAPI layer sits on top of the database so a client can hit `/api/status` to confirm the last run worked, browse recent rows through `/api/data`, or trigger a sync on demand via `/api/sync/trigger` whenever they've just updated the sheet and don't want to wait for the next scheduled run.
+The pipeline reads every row from a configured Google Sheet and runs it through a pandas cleaning step: it trims whitespace, drops fully-blank rows, deduplicates on the `id` column, coerces junk values in the amount column to `0.0`, parses dates (leaving unparseable ones as null), and filters out rows whose status isn't in a known set. The cleaned rows are then upserted into PostgreSQL.
+
+The upsert uses Postgres' native `INSERT ... ON CONFLICT (id) DO UPDATE` rather than a delete-and-reinsert. That choice matters: a delete-and-reinsert would reset every row's `synced_at` timestamp on each run, so you'd lose the ability to tell which records actually changed. With an upsert, only the rows that were touched get a new timestamp.
+
+APScheduler runs the whole thing at 02:00 UTC daily. On top of the database sits a FastAPI app with three endpoints, so you can confirm the last run succeeded (`/api/status`), browse recent rows (`/api/data`), or kick off a sync on demand (`/api/sync/trigger`) right after editing the sheet instead of waiting for the next scheduled run.
 
 ## Architecture
 
 ```
-  ┌────────────────┐      ┌──────────────────┐      ┌──────────────────┐
-  │ Google Sheets  │─────▶│  extractor.py    │─────▶│   clean_data()   │
-  └────────────────┘      │  get_sheet_data  │      │   (pandas)       │
-                          └──────────────────┘      └────────┬─────────┘
-                                                             │
-                                                             ▼
-  ┌────────────────┐      ┌──────────────────┐      ┌──────────────────┐
-  │     Client     │◀─────│   FastAPI app    │◀────▶│   loader.py      │
-  │ (curl/browser) │      │  (src/main.py)   │      │  upsert_records  │
-  └────────────────┘      └──────────────────┘      └────────┬─────────┘
-                                                             │
-                                                             ▼
-                                                  ┌──────────────────┐
-                                                  │   PostgreSQL     │
-                                                  │  synced_records  │
-                                                  └──────────────────┘
+  Google Sheets ──▶ extractor.py ──▶ clean_data()  (pandas)
+                    get_sheet_data         │
+                                           ▼
+        Client ◀──── FastAPI app ◀────▶ loader.py
+     (curl / browser)  src/main.py     upsert_records
+                                           │
+                                           ▼
+                                      PostgreSQL
+                                     synced_records
 ```
 
 ## Quickstart
@@ -34,22 +31,22 @@ The pipeline pulls every row out of a configured Google Sheet, runs it through a
 ### Prerequisites
 
 - Docker and Docker Compose installed
-- A Google Cloud service account with the Sheets API enabled — Google's walkthrough at https://developers.google.com/workspace/guides/create-credentials covers it end-to-end
+- A Google Cloud service account with the Sheets API and Drive API enabled (Google's setup walkthrough: https://developers.google.com/workspace/guides/create-credentials)
 - A Google Sheet shared with your service account email (the one ending in `@*.iam.gserviceaccount.com`) with at least Viewer access
 
 ### 1. Clone and configure
 
 ```bash
-git clone <your-repo-url>
-cd sheets-to-postgres-pipeline
+git clone https://github.com/Prasanna38430/Sheets-to-Postgres-sync-pipeline.git
+cd Sheets-to-Postgres-sync-pipeline
 cp .env.example .env
 ```
 
-Then open `.env` and fill in your `SPREADSHEET_ID` and `DATABASE_URL`. The defaults work for the bundled Postgres container, so for a local run you usually only need to set the spreadsheet ID.
+Open `.env` and set your `SPREADSHEET_ID` and `SHEET_NAME`. The Postgres defaults work as-is for a local run, so the spreadsheet ID is usually the only value you have to change.
 
 ### 2. Add your credentials
 
-Drop the service account JSON key file at the project root and name it `credentials.json`. The compose file mounts that path straight into the app container — the sync needs it to authenticate with Google's API.
+Put your service account JSON key file at the project root and name it `credentials.json`. The compose file mounts it into the app container, where the sync uses it to authenticate with Google's API. (A sample sheet is included as `sample_sheet.csv` if you want to test without your own data — import it into a Google Sheet and share it with your service account.)
 
 ### 3. Start everything
 
@@ -57,7 +54,16 @@ Drop the service account JSON key file at the project root and name it `credenti
 docker compose up --build
 ```
 
-The first build takes a minute. After that, Postgres comes up, waits for a healthcheck, then the app boots and immediately runs a first sync so the database isn't empty.
+This brings up three containers: Postgres, the sync API, and a pgAdmin instance for browsing the database. Postgres comes up first and waits for its healthcheck, then the app boots and runs an initial sync so the database isn't empty on first load.
+
+Once it's running:
+
+| Service | URL | Notes |
+|---------|-----|-------|
+| Sync API | http://localhost:8000 | The three endpoints below |
+| API docs (Swagger) | http://localhost:8000/docs | Interactive, auto-generated |
+| pgAdmin | http://localhost:5050 | Login `admin@admin.com` / `admin`; the DB is pre-registered |
+| Postgres (direct) | `localhost:5433` | For DBeaver, psql, app code |
 
 ### 4. Verify it's working
 
@@ -66,18 +72,18 @@ The first build takes a minute. After that, Postgres comes up, waits for a healt
 curl http://localhost:8000/api/status
 
 # what's actually in the database?
-curl http://localhost:8000/api/data?limit=5
+curl "http://localhost:8000/api/data?limit=5"
 
 # force a fresh sync right now
 curl -X POST http://localhost:8000/api/sync/trigger
 ```
 
-A healthy `/api/status` looks like this:
+A healthy `/api/status` looks like this (numbers reflect the bundled sample sheet):
 
 ```json
 {
-  "last_sync_time": "2026-05-29T08:14:22.103+00:00",
-  "rows_in_db": 1247,
+  "last_sync_time": "2026-05-29T11:03:14.598+00:00",
+  "rows_in_db": 24,
   "last_run_status": "success",
   "last_error": null
 }
@@ -87,9 +93,9 @@ A healthy `/api/status` looks like this:
 
 | Method | Path | What it does | Example response |
 |--------|------|--------------|------------------|
-| GET | `/api/status` | Snapshot of the last sync run | `{"last_sync_time": "...", "rows_in_db": 1247, "last_run_status": "success", "last_error": null}` |
-| GET | `/api/data?limit=100` | Most recently-synced rows (limit 1–500, default 100) | `{"count": 100, "rows": [{"id": "...", "customer_name": "...", ...}]}` |
-| POST | `/api/sync/trigger` | Runs the full pipeline immediately | `{"rows_extracted": 1247, "rows_after_cleaning": 1244, "rows_inserted_or_updated": 1244, "duration_seconds": 2.91}` |
+| GET | `/api/status` | Snapshot of the last sync run | `{"last_sync_time": "...", "rows_in_db": 24, "last_run_status": "success", "last_error": null}` |
+| GET | `/api/data?limit=100` | Most recently-synced rows (limit 1–500, default 100) | `{"count": 24, "rows": [{"id": "1001", "customer_name": "...", ...}]}` |
+| POST | `/api/sync/trigger` | Runs the full pipeline immediately | `{"rows_extracted": 27, "rows_after_cleaning": 24, "rows_inserted_or_updated": 24, "duration_seconds": 4.99}` |
 
 ## Configuration
 
@@ -98,11 +104,11 @@ A healthy `/api/status` looks like this:
 | `SPREADSHEET_ID` | yes | The ID from your sheet URL (the part between `/d/` and `/edit`) | `1A2B3C4D5E6F7G8H9I0J` |
 | `GOOGLE_CREDENTIALS_PATH` | yes | Path to the service account JSON file inside the container | `credentials.json` |
 | `DATABASE_URL` | yes | Full SQLAlchemy-style Postgres URL | `postgresql://postgres:password@db:5432/sheetsync` |
-| `SHEET_NAME` | no | Tab name to read from. Defaults to `Sheet1` | `Orders` |
+| `SHEET_NAME` | no | Tab name to read from (defaults to `Sheet1`) | `sample_sheet` |
 
 ## Adapting this to your use case
 
-The two files you'll touch most are `src/extractor.py` and `src/loader.py`. If your sheet has different columns, update `EXPECTED_COLUMNS` and `VALID_STATUSES` in `extractor.py` and adjust the `clean_data()` body — every cleaning rule there is independent so you can drop or add steps without untangling anything. If your destination table needs different columns or types, edit the `synced_records` Table definition in `loader.py` and the dict-build inside `upsert_records()` to match. To change the schedule, look for the `CronTrigger(hour=2, minute=0)` line in `src/main.py` and put whatever cron parts you want — twice a day, every 15 minutes, whatever fits.
+The two files you'll touch most are `src/extractor.py` and `src/loader.py`. If your sheet has different columns, update `EXPECTED_COLUMNS` and `VALID_STATUSES` in `extractor.py` and adjust the body of `clean_data()`; each cleaning rule is independent, so you can add or remove steps without breaking the rest. If your destination table needs different columns or types, edit the `synced_records` table definition in `loader.py` and the matching dict built inside `upsert_records()`. To change the schedule, find the `CronTrigger(hour=2, minute=0)` line in `src/main.py` and set whatever cadence you need.
 
 ## Running tests
 
@@ -111,8 +117,8 @@ pip install -r requirements.txt pytest
 pytest tests/ -v
 ```
 
-The unit tests mock out Sheets and the database so they run on a clean machine without any external setup.
+The unit tests mock out Sheets and the database, so they run on a clean machine with no external setup. They cover the cleaning rules (dedupe, status filtering, amount coercion, null handling) and the API endpoints. End-to-end testing against a live sheet and database is done by running the full Docker stack.
 
 ## Tech stack
 
-Python 3.11 · gspread 6.x · pandas 2.x · SQLAlchemy 2.x · FastAPI · APScheduler · PostgreSQL 15 · Docker
+Python 3.11 · gspread 6.x · pandas 2.x · SQLAlchemy 2.x · FastAPI · APScheduler · PostgreSQL 15 · pgAdmin · Docker
