@@ -1,0 +1,6 @@
+# pytest needs the repo root on the import path so `from src import ...` works
+# when tests are run as a bare `pytest` (e.g. in CI). without this it only
+# works via `python -m pytest`, which silently adds the cwd.
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
