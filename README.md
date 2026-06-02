@@ -1,5 +1,7 @@
 # Google Sheets → PostgreSQL Sync Pipeline
 
+[![CI](https://github.com/Prasanna38430/Sheets-to-Postgres-sync-pipeline/actions/workflows/ci.yml/badge.svg)](https://github.com/Prasanna38430/Sheets-to-Postgres-sync-pipeline/actions/workflows/ci.yml)
+
 A Python service that syncs data from any Google Sheet into a PostgreSQL database on a daily schedule, with a FastAPI layer for verifying syncs, triggering manual runs, and querying the data over HTTP.
 
 I built this as a portfolio project to show a production-shaped ETL pattern end to end: pull from a messy source, clean it, load it idempotently, and put a small API in front so the result is verifiable. A lot of teams keep operational data in spreadsheets but eventually need it in a real database for SQL reporting, and this is the shape that problem usually takes.
