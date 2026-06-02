@@ -1,4 +1,4 @@
-# One-command deploy: brings up Postgres and the sync API together.
+# One-command deploy: brings up Postgres, the sync API, and pgAdmin together.
 # Run with `docker compose up --build` from this folder.
 
 services:
@@ -8,6 +8,10 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
       POSTGRES_DB: ${POSTGRES_DB:-sheetsync}
+    # mapped to 5433 on the host so it doesn't collide with a local Postgres
+    # install. pgAdmin / DBeaver connect to localhost:5433.
+    ports:
+      - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -29,5 +33,26 @@ services:
       - ./credentials.json:/app/credentials.json
     restart: unless-stopped
 
+  # browser-based DB admin. open http://localhost:5050 once the stack is up.
+  # the db connection is pre-registered via pgadmin-servers.json — you just
+  # log in and click the server, then enter the Postgres password once.
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@admin.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
+    ports:
+      - "5050:80"
+    volumes:
+      - ./pgadmin-servers.json:/pgadmin4/servers.json:ro
+      - pgadmin_data:/var/lib/pgadmin
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   postgres_data:
+  pgadmin_data:
