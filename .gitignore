@@ -1,6 +1,10 @@
 # local secrets — never commit these
 .env
 credentials.json
+# any google service-account key files, whatever they're named
+sheet-to-postgres.json
+*-service-account*.json
+*-credentials.json
 
 # python build artifacts
 __pycache__/

@@ -1,0 +1,29 @@
+id,customer_name,email,amount,order_date,status
+1001,Alice Johnson,alice@example.com,249.99,2026-05-01,completed
+1002,Bob Martinez,bob.m@example.com,89.50,2026-05-02,active
+1003,Carol Singh,carol.s@example.com,1450.00,2026-05-02,pending
+1004,David Chen,david@example.com,75.25,2026-05-03,completed
+1005,Eva Brown,eva.brown@example.com,310.00,2026-05-03,refunded
+1006,Frank Wright,frank@example.com,520.75,2026-05-04,active
+1007,Grace Lee,grace.lee@example.com,42.00,2026-05-04,inactive
+1008,Henry Davis,henry@example.com,1899.99,2026-05-05,completed
+1009,Isla Patel,isla.p@example.com,67.80,2026-05-05,pending
+1010,Jack Wilson,jack.w@example.com,225.00,2026-05-06,completed
+1011,Karen White,karen@example.com,990.00,2026-05-06,active
+1012,Liam Garcia,liam@example.com,135.50,2026-05-07,completed
+1013,Mia Robinson,mia@example.com,408.20,2026-05-07,refunded
+1014,Noah Khan,noah.k@example.com,72.99,2026-05-08,pending
+1015,Olivia Park,olivia@example.com,1250.00,2026-05-08,completed
+1016,Peter Adams,peter@example.com,99.95,2026-05-09,active
+1017,Quinn Murphy,quinn@example.com,310.40,2026-05-09,completed
+1018,Rachel Stone,rachel@example.com,55.00,2026-05-10,inactive
+1019,Sam Turner,sam@example.com,2100.00,2026-05-10,completed
+1020,Tina Foster,tina.f@example.com,178.30,2026-05-11,pending
+1003,Carol Singh,carol.s@example.com,1450.00,2026-05-02,pending
+1021,Uma Reddy,uma@example.com,not_a_number,2026-05-12,active
+1022,Victor Hugo,,415.00,2026-05-12,completed
+1023,Wendy Cross,wendy@example.com,88.00,not-a-date,active
+1024,Xavier Bell,xavier@example.com,605.00,2026-05-13,deleted
+1025,Yara Ali,yara@example.com,925.50,2026-05-13,unknown
+1026,Zach Knight,zach@example.com,310.00,2026-05-14,completed
+,,,,,
