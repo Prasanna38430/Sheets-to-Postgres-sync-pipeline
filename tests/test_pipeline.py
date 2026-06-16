@@ -1,9 +1,9 @@
 """
 Unit tests for the cleaner and the FastAPI surface.
 
-These run without a real Google Sheet or a real database — gspread is never
-called and the loader is mocked at the boundary. That keeps the suite fast
-and runnable on a laptop with nothing installed beyond pip dependencies.
+These run without a real Google Sheet or a real database. gspread is never
+called and the loader is mocked at the boundary, so the suite is fast and
+runs on a laptop with nothing installed beyond the pip dependencies.
 
 What's not covered: an end-to-end integration test against a live Postgres
 and Sheet. Those need the full Docker stack and real credentials, so they
@@ -36,7 +36,7 @@ def test_clean_data_drops_duplicates():
 
 
 def test_clean_data_handles_null_emails():
-    """A missing email shouldn't drop the row — only fully blank rows go."""
+    """A missing email should not drop the row. Only fully blank rows go."""
     df = pd.DataFrame([
         {"id": "1", "customer_name": "Alice", "email": None,
          "amount": "10", "order_date": "2025-01-01", "status": "active"},
@@ -68,6 +68,20 @@ def test_clean_data_amount_coercion():
     ])
     cleaned, _ = extractor.clean_data(df)
     assert cleaned.iloc[0]["amount"] == 0.0
+
+
+def test_clean_data_strips_whitespace():
+    """Leading and trailing spaces in text fields should be trimmed."""
+    df = pd.DataFrame([
+        {"id": "1", "customer_name": "  Alice  ", "email": " a@x.com ",
+         "amount": "10", "order_date": "2025-01-01", "status": " active "},
+    ])
+    cleaned, _ = extractor.clean_data(df)
+    row = cleaned.iloc[0]
+    assert row["customer_name"] == "Alice"
+    assert row["email"] == "a@x.com"
+    # status is also lowercased, but the point here is the surrounding spaces
+    assert row["status"] == "active"
 
 
 def test_status_endpoint_returns_200():
