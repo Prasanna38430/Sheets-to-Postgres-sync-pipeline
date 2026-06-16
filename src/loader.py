@@ -1,9 +1,8 @@
 """
-Takes a cleaned DataFrame and pushes it into PostgreSQL using an upsert.
+Takes a cleaned DataFrame and writes it into PostgreSQL using an upsert.
 
-We deliberately don't use the ORM here — the table is tiny and flat, and going
-through Core keeps the SQL we generate easy to reason about (and easy to
-explain to a client when they ask "what does this actually run?").
+This uses SQLAlchemy Core rather than the ORM. The table is small and flat, so
+Core keeps the generated SQL easy to read and reason about.
 """
 
 import logging
@@ -48,51 +47,38 @@ synced_records = Table(
 
 def get_engine():
     """
-    Builds a SQLAlchemy engine from the DATABASE_URL env var.
+    Build a SQLAlchemy engine from the DATABASE_URL env var.
 
-    We pool_pre_ping so a long-idle connection doesn't blow up the first sync
-    of the day with a "server closed the connection unexpectedly" error —
-    cheap insurance when the API has been running but the sheet hasn't changed.
-
-    Returns a SQLAlchemy Engine. Raises RuntimeError if the URL is missing or
-    the database isn't reachable, with a message that points at the most
-    likely fix.
+    Raises RuntimeError with a clear message if the URL is missing or the
+    database can't be reached.
     """
     database_url = os.getenv("DATABASE_URL")
     if not database_url:
-        raise RuntimeError(
-            "DATABASE_URL is not set — check your DATABASE_URL in .env."
-        )
+        raise RuntimeError("DATABASE_URL is not set. Check your DATABASE_URL in .env.")
 
+    # pool_pre_ping avoids a stale-connection error on the first query after
+    # the app has been idle for a while.
     try:
         engine = create_engine(database_url, pool_pre_ping=True, future=True)
-        # cheap sanity check so failures surface here instead of inside the
-        # first real query, which is much harder to debug.
+        # connect once now so a bad URL fails here, not deep inside a later query.
         with engine.connect() as conn:
             conn.execute(select(1))
         return engine
     except SQLAlchemyError as exc:
         logger.exception("could not connect to postgres")
         raise RuntimeError(
-            "Could not connect to PostgreSQL — check your DATABASE_URL in .env, "
-            "and make sure the database is running and reachable."
+            "Could not connect to PostgreSQL. Check your DATABASE_URL in .env "
+            "and make sure the database is running."
         ) from exc
 
 
 def ensure_table_exists(engine):
-    """
-    Creates the synced_records table if it doesn't already exist.
-
-    Safe to call on every startup. SQLAlchemy's create_all is a no-op when
-    the table is already there, so we don't need a separate migration step
-    for a project this small.
-    """
+    # safe to call on every startup; create_all is a no-op if the table exists.
     metadata.create_all(engine, tables=[synced_records])
     logger.info("Ensured synced_records table exists")
 
 
 def _count_rows(engine):
-    """Returns the current row count of synced_records. Used for upsert stats."""
     with engine.connect() as conn:
         result = conn.execute(select(func.count()).select_from(synced_records))
         return int(result.scalar() or 0)
@@ -100,21 +86,14 @@ def _count_rows(engine):
 
 def upsert_records(df, engine):
     """
-    Loads a cleaned DataFrame into synced_records using INSERT ... ON CONFLICT.
+    Load a cleaned DataFrame into synced_records using INSERT ... ON CONFLICT.
 
-    Why upsert instead of delete-then-insert? Two reasons. First, we want to
-    preserve synced_at history per row — a delete+insert would reset every
-    row's synced_at on every run, hiding which records actually changed.
-    Second, an upsert is atomic at the row level: if the run dies halfway,
-    the table is never in an empty/partial state, which matters because the
-    FastAPI layer is reading from the same table at the same time.
+    Upsert instead of delete-then-insert for two reasons: it keeps each row's
+    synced_at so you can tell what actually changed, and it never leaves the
+    table empty mid-run while the API is reading from it.
 
-    The caller must pass a DataFrame that's already been through clean_data().
-    No defensive cleaning here on purpose — if something junky reaches the
-    loader we want it to surface as a database error, not silently get
-    swallowed.
-
-    Returns a dict with rows_inserted, rows_updated, total_processed.
+    Expects a DataFrame that already went through clean_data(). Returns a dict
+    with rows_inserted, rows_updated, total_processed.
     """
     if df.empty:
         logger.info("upsert called with empty DataFrame — nothing to do")
@@ -123,9 +102,8 @@ def upsert_records(df, engine):
     now = datetime.now(timezone.utc)
     rows_before = _count_rows(engine)
 
-    # build the list of dicts SQLAlchemy expects. order_date arrives as a
-    # pandas Timestamp — postgres is fine with that but we convert to date
-    # to match the column type and avoid timezone confusion on the date.
+    # order_date comes in as a pandas Timestamp; convert to a plain date to
+    # match the column type.
     records = []
     for row in df.to_dict(orient="records"):
         order_date = row.get("order_date")
@@ -177,14 +155,8 @@ def upsert_records(df, engine):
 
 def get_sync_stats(engine):
     """
-    Returns a snapshot of what's currently in the database.
-
-    Used by the /api/status endpoint so a client can confirm a sync ran
-    without having to query the database themselves.
-
-    Keys in the returned dict:
-      total_rows_in_db, last_synced_at, most_recent_order_date.
-    Any of the timestamp fields can be None if the table is empty.
+    Snapshot of the table for /api/status: total_rows_in_db, last_synced_at,
+    most_recent_order_date. The timestamp fields are None if the table is empty.
     """
     with engine.connect() as conn:
         total = conn.execute(

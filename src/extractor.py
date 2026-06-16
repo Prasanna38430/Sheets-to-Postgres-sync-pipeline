@@ -1,9 +1,8 @@
 """
-Pulls rows out of a Google Sheet and hands back a clean pandas DataFrame.
+Reads rows from a Google Sheet and returns a clean pandas DataFrame.
 
-The extractor is intentionally dumb about what happens next — it just talks to
-Sheets, normalises the messy stuff humans tend to leave in spreadsheets, and
-returns something the loader can trust.
+Reading and cleaning are kept separate so a caller can inspect the raw data
+when a sync looks off.
 """
 
 import logging
@@ -17,8 +16,8 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-# the columns we expect in the sheet. if a client renames a column, this is
-# the one place to update — everything downstream depends on these names.
+# columns the pipeline expects. change these here if your sheet uses different
+# names; everything downstream relies on them.
 EXPECTED_COLUMNS = ["id", "customer_name", "email", "amount", "order_date", "status"]
 
 VALID_STATUSES = {"active", "inactive", "pending", "completed", "refunded"}
@@ -26,20 +25,12 @@ VALID_STATUSES = {"active", "inactive", "pending", "completed", "refunded"}
 
 def get_sheet_data():
     """
-    Connects to the configured Google Sheet and returns its rows as a DataFrame.
+    Connect to the configured Google Sheet and return its rows as a DataFrame.
 
     Reads SPREADSHEET_ID, GOOGLE_CREDENTIALS_PATH, and SHEET_NAME from the
-    environment. Uses a service account for auth — the sheet needs to be shared
-    with the service account email, otherwise gspread will tell you it can't
-    find the spreadsheet (the error message is misleading but that's almost
-    always the reason).
-
-    Returns a pandas DataFrame with whatever columns the sheet has. Cleaning
-    happens later in clean_data() so we keep the two concerns separate — that
-    way a caller can inspect the raw data if a sync looks weird.
-
-    Raises a friendly RuntimeError if the credentials file is missing or the
-    sheet can't be opened.
+    environment and authenticates with a service account, so the sheet must be
+    shared with the service account email. Raises RuntimeError with a clear
+    message if the credentials are missing or the sheet can't be opened.
     """
     spreadsheet_id = os.getenv("SPREADSHEET_ID")
     credentials_path = os.getenv("GOOGLE_CREDENTIALS_PATH", "credentials.json")
@@ -88,24 +79,18 @@ def get_sheet_data():
 
 def clean_data(df):
     """
-    Takes a raw DataFrame from the sheet and returns a cleaned one + stats.
+    Clean a raw sheet DataFrame and return (cleaned DataFrame, stats dict).
 
-    Humans put weird stuff in spreadsheets: trailing spaces, blank rows between
-    sections, duplicated IDs, "N/A" in numeric fields, dates in five formats.
-    This function pushes all that into something a database will accept.
+    Cleaning steps:
+      - strip whitespace from string columns
+      - drop fully-empty rows
+      - drop duplicate ids, keeping the first
+      - coerce amount to float, junk becomes 0.0
+      - parse order_date, leaving bad dates as null
+      - drop rows whose status isn't in VALID_STATUSES
 
-    What it actually does:
-      - strips whitespace from string columns
-      - drops fully-empty rows (Sheets sometimes exports trailing blanks)
-      - drops duplicate IDs, keeping the first occurrence
-      - coerces amount to float, replacing junk with 0.0
-      - parses order_date to datetime, leaving bad dates as NaT
-      - filters out rows whose status isn't in our known set
-
-    Returns a tuple of (cleaned DataFrame, stats dict). The stats dict has:
-      rows_before, rows_after, duplicates_removed, bad_dates.
-    Callers (the FastAPI layer mainly) log these so we can spot a sheet
-    that's degrading over time.
+    The stats dict has rows_before, rows_after, duplicates_removed, bad_dates,
+    which the API logs so a degrading sheet is easy to spot.
     """
     rows_before = len(df)
 
@@ -117,12 +102,11 @@ def clean_data(df):
             "bad_dates": 0,
         }
 
-    # strip whitespace on every string column. doing it column-by-column
-    # because applymap is deprecated and gives a warning on pandas 2.x.
+    # strip whitespace per column (applymap is deprecated on pandas 2.x).
     for col in df.select_dtypes(include="object").columns:
         df[col] = df[col].astype(str).str.strip()
-        # gspread gives back empty strings for blank cells — turn them into NaN
-        # so downstream "all null" checks work as you'd expect.
+        # blank cells come back as empty strings; make them NaN so the
+        # drop-empty-rows step below works.
         df[col] = df[col].replace({"": pd.NA, "nan": pd.NA, "None": pd.NA})
 
     df = df.dropna(how="all")
