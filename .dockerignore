@@ -1,0 +1,22 @@
+# keep secrets out of the image. credentials.json and .env are provided at
+# runtime by docker-compose (a volume mount and env_file), so they must never
+# be copied into an image layer.
+.env
+credentials.json
+sheet-to-postgres.json
+*-service-account*.json
+*-credentials.json
+
+# not needed at runtime, and copying them bloats the build
+venv/
+.venv/
+.git/
+.github/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.md
+examples/
+sample_sheet*.csv
+pgadmin-servers.json
+scripts/
