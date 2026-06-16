@@ -1,0 +1,32 @@
+{
+  "count": 3,
+  "rows": [
+    {
+      "id": "1002",
+      "customer_name": "Bob Martinez",
+      "email": "bob.m@example.com",
+      "amount": 89.5,
+      "order_date": "2026-05-02",
+      "status": "active",
+      "synced_at": "2026-05-29T11:03:14.567443+00:00"
+    },
+    {
+      "id": "1003",
+      "customer_name": "Carol Singh",
+      "email": "carol.s@example.com",
+      "amount": 1450.0,
+      "order_date": "2026-05-02",
+      "status": "pending",
+      "synced_at": "2026-05-29T11:03:14.567443+00:00"
+    },
+    {
+      "id": "1001",
+      "customer_name": "Alice Johnson",
+      "email": "alice@example.com",
+      "amount": 249.99,
+      "order_date": "2026-05-01",
+      "status": "completed",
+      "synced_at": "2026-05-29T11:03:14.567443+00:00"
+    }
+  ]
+}

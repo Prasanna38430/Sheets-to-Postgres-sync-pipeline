@@ -1,0 +1,9 @@
+2026-05-29 11:03:10,521 INFO apscheduler.scheduler — Added job "run_sync_pipeline" to job store "default"
+2026-05-29 11:03:10,521 INFO apscheduler.scheduler — Scheduler started
+2026-05-29 11:03:10,522 INFO src.main — Scheduler started. First sync running now...
+2026-05-29 11:03:14,352 INFO src.extractor — Pulled 27 rows from sheet 'sample_sheet'
+2026-05-29 11:03:14,444 INFO src.extractor — Cleaned sheet: 27 → 24 rows (1 dupes, 1 bad dates)
+2026-05-29 11:03:14,567 INFO src.loader — Ensured synced_records table exists
+2026-05-29 11:03:14,598 INFO src.loader — Upsert done: 24 inserted, 0 updated (processed 24)
+2026-05-29 11:03:14,610 INFO uvicorn — Application startup complete.
+2026-05-29 11:03:14,611 INFO uvicorn — Uvicorn running on http://0.0.0.0:8000
